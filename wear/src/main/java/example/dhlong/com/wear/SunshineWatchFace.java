@@ -23,12 +23,16 @@ import android.content.IntentFilter;
 import android.content.res.Resources;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Typeface;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.support.v4.content.res.ResourcesCompat;
 import android.support.wearable.watchface.CanvasWatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
 import android.view.SurfaceHolder;
@@ -277,7 +281,19 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
 
             drawCenteredText(canvas, bounds, mDateTextPaint, bounds.height()*2f/3f, "45" + (char) 0x00B0);
 
-            canvas.drawText(" 50" + (char) 0x00B0, bounds.centerX() + mDateTextPaint.measureText("45" + (char) 0x00B0)/2, bounds.height()*2f/3f, mDateTextPaint);
+            Rect textBounds = new Rect();
+            mDateTextPaint.getTextBounds("45", 0, 2, textBounds);
+            float width = mDateTextPaint.measureText("45"+ (char) 0x00B0)/2, height = textBounds.height();
+            canvas.drawText(" 50" + (char) 0x00B0, bounds.centerX() + width, bounds.height()*2f/3f, mDateTextPaint);
+            Drawable icon = ResourcesCompat.getDrawable(getResources(), R.drawable.art_clear, null);
+            float intrinsicSize = icon.getIntrinsicHeight();
+            float scale = 2*height/intrinsicSize;
+            Matrix matrix = new Matrix();
+            matrix.setScale(scale, scale);
+            matrix.postTranslate(bounds.centerX() - width - 2.5f*height, bounds.height()*2f/3f - 1.5f*height);
+            icon.setBounds(0,0,5,5);
+            canvas.drawBitmap(((BitmapDrawable) icon).getBitmap(), matrix, new Paint());
+//            canvas.drawBitmap(((BitmapDrawable) icon).getBitmap(), bounds.centerX() - width - 10f, bounds.height()*2f/3f, new Paint());
         }
 
         /**
