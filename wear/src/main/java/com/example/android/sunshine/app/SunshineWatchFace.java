@@ -54,6 +54,7 @@ import com.google.android.gms.wearable.NodeApi;
 import com.google.android.gms.wearable.Wearable;
 
 import java.lang.ref.WeakReference;
+import java.nio.ByteBuffer;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.GregorianCalendar;
@@ -131,7 +132,8 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
         boolean mAmbient;
 
         private boolean isWeatherDataLoaded;
-        private long lastUpdateMilliseconds;
+        private long lastUpdateTime;
+        private long lastRequestTime = -1;
 
         private Paint mBackgroundPaint;
         private Paint mHourPaint, mMinutePaint, mColonPaint, mDateTextPaint, mHighTempPaint, mLowTempPaint, mLinePaint, mIconPaint;
@@ -153,7 +155,7 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
         private static final float PADDING_TEMP_SCALE = 3f;
         private static final float ICON_SCALING_FACTOR = 2f;
 
-        private static final long MAX_INTER_UPDATE_MILLISECONDS = 6*60*60*1000;
+        private static final long MAX_INTER_UPDATE_MILLISECONDS = 6*60*60*1000; // 6 hours
 
         Calendar mTime;
         final BroadcastReceiver mTimeZoneReceiver = new BroadcastReceiver() {
@@ -195,7 +197,7 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             if (SUNSHINE_PATH.equals(item.getUri().getPath())) {
                 DataMap dataMap = DataMapItem.fromDataItem(item).getDataMap();
                 isWeatherDataLoaded = true;
-                lastUpdateMilliseconds = System.currentTimeMillis();
+                lastUpdateTime = System.currentTimeMillis();
                 if (dataMap.containsKey(HIGH_TEMP_KEY)) mHighTemp = dataMap.getInt(HIGH_TEMP_KEY);
                 if (dataMap.containsKey(LOW_TEMP_KEY)) mLowTemp = dataMap.getInt(LOW_TEMP_KEY);
                 if (dataMap.containsKey(WEATHER_ID_KEY) && mWeatherId != dataMap.getInt(WEATHER_ID_KEY)) {
@@ -204,14 +206,28 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                     mBitmap = ((BitmapDrawable) ContextCompat.getDrawable(getApplicationContext(),
                             getIconResourceForWeatherCondition(mWeatherId))).getBitmap();
                 }
-                if (dataMap.containsKey("timestamp")) dataMap.getLong("timestamp");
+
+                if (dataMap.containsKey("timestamp")) {
+                    Log.d(TAG, "timestamp: " + dataMap.get("timestamp"));
+                }
             }
         }
 
-        private void sendDataRequestMessageIfNeccessary() {
-            if(!isWeatherDataLoaded || System.currentTimeMillis() - lastUpdateMilliseconds < MAX_INTER_UPDATE_MILLISECONDS) {
-                Wearable.MessageApi.sendMessage(googleApiClient, remoteNodeId, DATA_REQUEST_PATH, null);
+        private void sendDataRequestMessageIfNecessary() {
+            long currentTime = System.currentTimeMillis();
+
+            if (isWeatherDataLoaded && currentTime - lastUpdateTime < MAX_INTER_UPDATE_MILLISECONDS) {
+                return;
             }
+
+            byte[] data = null;
+            if(!isWeatherDataLoaded) data = ByteBuffer
+                    .allocate(Long.SIZE/Byte.SIZE)
+                    .putLong(lastUpdateTime)
+                    .array();
+
+            Log.d(TAG, "Sending request");
+            Wearable.MessageApi.sendMessage(googleApiClient, remoteNodeId, DATA_REQUEST_PATH, data);
         }
 
         public int getIconResourceForWeatherCondition(int weatherId) {
@@ -301,7 +317,9 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             mIconPaint.setAntiAlias(true);
 
             mTime = new GregorianCalendar(TimeZone.getDefault());
+            lastUpdateTime = System.currentTimeMillis();
         }
+
 
         @Override
         public void onDestroy() {
@@ -466,7 +484,7 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                     mTapCount++;
                     mBackgroundPaint.setColor(ContextCompat.getColor(getApplicationContext(),
                             mTapCount % 2 == 0 ? R.color.background : R.color.background2));
-                    sendDataRequestMessageIfNeccessary();
+//                    sendDataRequestMessageIfNecessary();
                     break;
             }
             invalidate();
@@ -481,7 +499,7 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                 canvas.drawRect(0, 0, bounds.width(), bounds.height(), mBackgroundPaint);
             }
 
-            sendDataRequestMessageIfNeccessary();
+            sendDataRequestMessageIfNecessary();
 
             mTime = new GregorianCalendar(mTime.getTimeZone());
             String timeText = new SimpleDateFormat("HH:mm", Locale.getDefault()).format(mTime.getTime());

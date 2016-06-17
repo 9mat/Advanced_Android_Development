@@ -19,6 +19,8 @@ import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
 import com.google.android.gms.wearable.WearableListenerService;
 
+import java.nio.ByteBuffer;
+
 /**
  * Created by 9mat on 16/6/2016.
  * Listen to message from wearable and reply with data request from WeatherProvider
@@ -68,17 +70,23 @@ public class DataRequestListener extends WearableListenerService {
         Uri weatherForLocationUri = WeatherContract.WeatherEntry
                 .buildWeatherLocationWithStartDate(locationSetting, System.currentTimeMillis());
 
+        long timeStamp = 0;
+        if(messageEvent.getData() != null) {
+            ByteBuffer buffer = ByteBuffer.wrap(messageEvent.getData());
+            if(buffer.remaining() >= 8) {
+                timeStamp = ByteBuffer.wrap(messageEvent.getData()).getLong();
+            }
+        }
+
         Cursor cursor = getContentResolver().query(weatherForLocationUri, FORECAST_COLUMNS, null, null, sortOrder);
 
-        if(cursor != null) {
-            cursor.moveToFirst();
+        if(cursor != null && cursor.moveToFirst()) {
             int high = (int) cursor.getDouble(COL_WEATHER_MAX_TEMP);
             int low = (int) cursor.getDouble(COL_WEATHER_MIN_TEMP);
             int weatherId = cursor.getInt(COL_WEATHER_CONDITION_ID);
-            cursor.close();
 
             Log.d(TAG, "Data exists. Start sending data to wearable.");
-            sendDataToWearable(mGoogleApiClient, high, low, weatherId);
+            sendDataToWearable(mGoogleApiClient, high, low, weatherId, timeStamp);
         } else {
             Log.d(TAG, "Data do not exist. Request sync from ContentResolver.");
             Bundle settingsBundle = new Bundle();
@@ -88,14 +96,16 @@ public class DataRequestListener extends WearableListenerService {
             ContentResolver.requestSync(SunshineSyncAdapter.getSyncAccount(getApplicationContext()),
                     getString(R.string.content_authority), settingsBundle);
         }
+
+        if(cursor != null) cursor.close();
     }
 
-    public static void sendDataToWearable(GoogleApiClient client, int high, int low, int weatherId) {
+    public static void sendDataToWearable(GoogleApiClient client, int high, int low, int weatherId, long timeStamp) {
         PutDataMapRequest putDataMapRequest = PutDataMapRequest.create("/sunshine");
         putDataMapRequest.getDataMap().putInt(HIGH_TEMP_KEY, high);
         putDataMapRequest.getDataMap().putInt(LOW_TEMP_KEY, low);
         putDataMapRequest.getDataMap().putInt(WEATHER_ID_KEY, weatherId);
-        putDataMapRequest.getDataMap().putLong("timestamp", System.currentTimeMillis());
+        putDataMapRequest.getDataMap().putLong("timestamp", timeStamp);
 
         PutDataRequest request = putDataMapRequest.asPutDataRequest();
         Wearable.DataApi.putDataItem(client, request).setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
