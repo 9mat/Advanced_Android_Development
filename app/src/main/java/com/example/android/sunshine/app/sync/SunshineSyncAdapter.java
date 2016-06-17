@@ -6,6 +6,7 @@ import android.annotation.SuppressLint;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.AbstractThreadedSyncAdapter;
+import android.content.BroadcastReceiver;
 import android.content.ContentProviderClient;
 import android.content.ContentResolver;
 import android.content.ContentUris;
@@ -30,6 +31,7 @@ import android.support.v4.app.NotificationCompat;
 import android.support.v4.app.TaskStackBuilder;
 import android.text.format.Time;
 import android.util.Log;
+import android.widget.Toast;
 
 import com.bumptech.glide.Glide;
 import com.example.android.sunshine.app.BuildConfig;
@@ -62,6 +64,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Vector;
 import java.util.concurrent.ExecutionException;
+
 
 public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
     public final String LOG_TAG = SunshineSyncAdapter.class.getSimpleName();
@@ -99,30 +102,11 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
     public static final int LOCATION_STATUS_INVALID = 4;
 
     private final GoogleApiClient mGoogleApiClient;
-    private static final String HIGH_TEMP_KEY = "HIGH_TEMP";
-    private static final String LOW_TEMP_KEY = "LOW_TEMP";
-    private static final String WEATHER_ICON_KEY = "WEATHER_ICON_KEY";
-
 
     public SunshineSyncAdapter(Context context, boolean autoInitialize) {
         super(context, autoInitialize);
 
-        mGoogleApiClient = new GoogleApiClient.Builder(context)
-                .addConnectionCallbacks(new GoogleApiClient.ConnectionCallbacks() {
-                    @Override
-                    public void onConnected(@Nullable Bundle bundle) {
-                    }
-
-                    @Override
-                    public void onConnectionSuspended(int i) {
-                    }})
-                .addOnConnectionFailedListener(new GoogleApiClient.OnConnectionFailedListener() {
-                    @Override
-                    public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
-                    }})
-                .addApi(Wearable.API)
-                .build();
-
+        mGoogleApiClient = Utility.getGoogleApiClient(context);
         mGoogleApiClient.connect();
     }
 
@@ -390,27 +374,7 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
 
                 if (i==0) {
                     Log.d(LOG_TAG, "Send weather data to wearable via google play service");
-                    PutDataMapRequest putDataMapRequest = PutDataMapRequest.create("/sunshine");
-                    putDataMapRequest.getDataMap().putInt(HIGH_TEMP_KEY,(int)high);
-                    putDataMapRequest.getDataMap().putInt(LOW_TEMP_KEY,(int)low);
-                    putDataMapRequest.getDataMap().putLong("timestamp", System.currentTimeMillis());
-
-                    int artResourceForWeatherCondition = Utility.getArtResourceForWeatherCondition(weatherId);
-                    Bitmap bitmap = BitmapFactory.decodeResource(getContext().getResources(),artResourceForWeatherCondition);
-                    Asset asset = createAssetFromBitmap(bitmap);
-                    putDataMapRequest.getDataMap().putAsset(WEATHER_ICON_KEY,asset);
-
-                    PutDataRequest request = putDataMapRequest.asPutDataRequest();
-                    Wearable.DataApi.putDataItem(mGoogleApiClient, request).setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
-                        @Override
-                        public void onResult(@NonNull DataApi.DataItemResult dataItemResult) {
-                            if (dataItemResult.getStatus().isSuccess()){
-                                Log.i(LOG_TAG, "Successfully sent to wearable");
-                            } else {
-                                Log.i(LOG_TAG, "Couldn't  send to wearable");
-                            }
-                        }
-                    });
+                    DataRequestListener.sendDataToWearable(mGoogleApiClient,(int) high, (int) low, weatherId);
                 }
             }
 

@@ -23,7 +23,6 @@
     <uses-permission android:name="android.permission.READ_SYNC_SETTINGS" />
     <uses-permission android:name="android.permission.WRITE_SYNC_SETTINGS" />
     <uses-permission android:name="android.permission.AUTHENTICATE_ACCOUNTS" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- Permissions required to make our UI more friendly -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -184,6 +183,13 @@
         <service
             android:name=".gcm.RegistrationIntentService"
             android:exported="false"></service>
+
+        <service android:name=".sync.DataRequestListener">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data android:scheme="wear" android:host="*" android:path="/weather-request" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>

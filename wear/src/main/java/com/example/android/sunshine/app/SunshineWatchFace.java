@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package example.android.sunshine.wear;
+package com.example.android.sunshine.app;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -22,13 +22,13 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Typeface;
+import android.graphics.drawable.BitmapDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -36,23 +36,22 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.wearable.watchface.CanvasWatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
-import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.WindowInsets;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
-import com.google.android.gms.wearable.Asset;
+import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.wearable.DataApi;
 import com.google.android.gms.wearable.DataEvent;
 import com.google.android.gms.wearable.DataEventBuffer;
 import com.google.android.gms.wearable.DataItem;
 import com.google.android.gms.wearable.DataMap;
 import com.google.android.gms.wearable.DataMapItem;
+import com.google.android.gms.wearable.NodeApi;
 import com.google.android.gms.wearable.Wearable;
 
-import java.io.InputStream;
 import java.lang.ref.WeakReference;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
@@ -70,17 +69,17 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
     private static final String TAG = SunshineWatchFace.class.getSimpleName();
     private static final Typeface NORMAL_TYPEFACE =
             Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL);
-
+    private static final Typeface LIGHT_TYPEFACE =
+            Typeface.create("sans-serif-light", Typeface.NORMAL);
 
     private static final String SUNSHINE_PATH = "/sunshine";
     private static final String HIGH_TEMP_KEY = "HIGH_TEMP";
     private static final String LOW_TEMP_KEY = "LOW_TEMP";
-    private static final String SHORT_DESC_KEY = "SHORT_DESC_KEY";
-    private static final String WEATHER_ICON_KEY = "WEATHER_ICON_KEY";
+    private static final String WEATHER_ID_KEY = "WEATHER_ID";
 
     private int mHighTemp = 41;
     private int mLowTemp = 37;
-    private int mShortDescCode;
+    private int mWeatherId = 0;
     private Bitmap mBitmap;
 
 
@@ -128,9 +127,27 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
 
         final Handler mUpdateTimeHandler = new EngineHandler(this);
         boolean mRegisteredTimeZoneReceiver = false;
-        Paint mBackgroundPaint;
-        Paint mTimeTextPaint, mDateTextPaint;
         boolean mAmbient;
+
+        private Paint mBackgroundPaint;
+        private Paint mHourPaint, mMinutePaint, mColonPaint, mDateTextPaint, mHighTempPaint, mLowTempPaint, mLinePaint, mIconPaint;
+
+        // Y is offset from the top
+        private float mYDateOffset, mYTempOffset, mYLineOffset, mYIconOffset;
+
+        // note: X is offset from the center (bounds.centerX())
+        private float mXHourOffset, mXColonOffset, mXMinuteOffset, mXIconOffset, mXHighTempOffset, mXLowTempOffset;
+
+        private float mColonWidth, mHourWidth, mHighTempWidth, mTempPadding;
+        private float mDateHeight, mTempHeight;
+
+        private static final String SAMPLE_HOUR = "00";
+        private static final String SAMPLE_TEMP = "88" + (char) 0x00B0;
+        private static final String SAMPLE_DATE = "Thu, Jun 22 2016";
+
+        private static final float PADDING_DATE_SCALE = 2f;
+        private static final float PADDING_TEMP_SCALE = 3f;
+        private static final float ICON_SCALING_FACTOR = 2f;
 
         Calendar mTime;
         final BroadcastReceiver mTimeZoneReceiver = new BroadcastReceiver() {
@@ -140,10 +157,13 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             }
         };
 
+        private static final String DATA_REQUEST_PATH = "/weather-request";
+        private String remoteNodeId;
+
         int mTapCount;
 
         float mXOffset;
-        float mYOffset;
+        float mYTimeOffset;
 
         /**
          * Whether the display supports fewer bits for each color in ambient mode. When true, we
@@ -170,34 +190,34 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                 DataMap dataMap = DataMapItem.fromDataItem(item).getDataMap();
                 if (dataMap.containsKey(HIGH_TEMP_KEY)) mHighTemp = dataMap.getInt(HIGH_TEMP_KEY);
                 if (dataMap.containsKey(LOW_TEMP_KEY)) mLowTemp = dataMap.getInt(LOW_TEMP_KEY);
+                if (dataMap.containsKey(WEATHER_ID_KEY)) { // && mWeatherId != dataMap.getInt(WEATHER_ID_KEY)) {
+                    mWeatherId = dataMap.getInt(WEATHER_ID_KEY);
+                    Log.d(TAG, "Retrieve Bitmap " + mWeatherId);
+                    mBitmap = ((BitmapDrawable) getResources().getDrawable(getIconResourceForWeatherCondition(mWeatherId))).getBitmap();
+                }
                 if (dataMap.containsKey("timestamp")) dataMap.getLong("timestamp");
-//                if (dataMap.containsKey(WEATHER_ICON_KEY)){
-//                    Asset icon = dataMap.getAsset(WEATHER_ICON_KEY);
-//                    mBitmap = loadBitmapFromAsset(icon);
-//                }
             }
         }
 
-        public Bitmap loadBitmapFromAsset(Asset asset) {
-            if (asset == null) {
-                throw new IllegalArgumentException("Asset must be non-null");
-            }
-            ConnectionResult result =
-                    googleApiClient.blockingConnect(500, TimeUnit.MILLISECONDS);
-            if (!result.isSuccess()) {
-                return null;
-            }
-            // convert asset into a file descriptor and block until it's ready
-            InputStream assetInputStream = Wearable.DataApi.getFdForAsset(
-                    googleApiClient, asset).await().getInputStream();
-            googleApiClient.disconnect();
+        private void sendDataRequestMessage() {
+            Wearable.MessageApi.sendMessage(googleApiClient, remoteNodeId, DATA_REQUEST_PATH, null);
+        }
 
-            if (assetInputStream == null) {
-                Log.w(TAG, "Requested an unknown Asset.");
-                return null;
-            }
-            // decode the stream into a bitmap
-            return BitmapFactory.decodeStream(assetInputStream);
+        public int getIconResourceForWeatherCondition(int weatherId) {
+            // Based on weather code data found at:
+            // http://bugs.openweathermap.org/projects/api/wiki/Weather_Condition_Codes
+            if (weatherId >= 200 && weatherId <= 232) return R.drawable.ic_storm;
+            if (weatherId >= 300 && weatherId <= 321) return R.drawable.ic_light_rain;
+            if (weatherId >= 500 && weatherId <= 504) return R.drawable.ic_rain;
+            if (weatherId == 511) return R.drawable.ic_snow;
+            if (weatherId >= 520 && weatherId <= 531) return R.drawable.ic_rain;
+            if (weatherId >= 600 && weatherId <= 622) return R.drawable.ic_snow;
+            if (weatherId >= 701 && weatherId <= 761) return R.drawable.ic_fog;
+            if (weatherId == 761 || weatherId == 781) return R.drawable.ic_storm;
+            if (weatherId == 800) return R.drawable.ic_clear;
+            if (weatherId == 801) return R.drawable.ic_light_clouds;
+            if (weatherId >= 802 && weatherId <= 804) return R.drawable.ic_cloudy;
+            return -1;
         }
 
 
@@ -205,6 +225,14 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
         public void onConnected(@Nullable Bundle bundle) {
             Log.d(TAG, "connected GoogleAPI");
             Wearable.DataApi.addListener(googleApiClient, this);
+            Wearable.NodeApi.getConnectedNodes(googleApiClient).setResultCallback(new ResultCallback<NodeApi.GetConnectedNodesResult>() {
+                @Override
+                public void onResult(@NonNull NodeApi.GetConnectedNodesResult getConnectedNodesResult) {
+                    if(getConnectedNodesResult.getStatus().isSuccess() && getConnectedNodesResult.getNodes().size() > 0) {
+                        remoteNodeId = getConnectedNodesResult.getNodes().get(0).getId();
+                    }
+                }
+            });
         }
 
         @Override
@@ -242,16 +270,24 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                     .build();
 
             Resources resources = SunshineWatchFace.this.getResources();
-            mYOffset = resources.getDimension(R.dimen.digital_y_offset);
+            mYTimeOffset = resources.getDimension(R.dimen.digital_y_offset);
 
             mBackgroundPaint = new Paint();
             mBackgroundPaint.setColor(resources.getColor(R.color.background));
 
-            mTimeTextPaint = new Paint();
-            mTimeTextPaint = createTextPaint(resources.getColor(R.color.digital_text));
+            mHourPaint = createTextPaint(resources.getColor(R.color.digital_text), NORMAL_TYPEFACE);
+            mMinutePaint = createTextPaint(resources.getColor(R.color.digital_text), LIGHT_TYPEFACE);
+            mColonPaint = createTextPaint(resources.getColor(R.color.disabled_text_light), NORMAL_TYPEFACE);
+            mDateTextPaint = createTextPaint(resources.getColor(R.color.disabled_text_light), LIGHT_TYPEFACE);
+            mHighTempPaint = createTextPaint(resources.getColor(R.color.digital_text), NORMAL_TYPEFACE);
+            mLowTempPaint = createTextPaint(resources.getColor(R.color.disabled_text_light), LIGHT_TYPEFACE);
 
-            mDateTextPaint = new Paint();
-            mDateTextPaint = createTextPaint(resources.getColor(R.color.digital_text));
+            mLinePaint = new Paint();
+            mLinePaint.setColor(resources.getColor(R.color.disabled_text_light));
+            mLowTempPaint.setAntiAlias(true);
+
+            mIconPaint = new Paint();
+            mIconPaint.setAntiAlias(true);
 
             mTime = new GregorianCalendar(TimeZone.getDefault());
         }
@@ -263,10 +299,10 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             super.onDestroy();
         }
 
-        private Paint createTextPaint(int textColor) {
+        private Paint createTextPaint(int textColor, Typeface typeface) {
             Paint paint = new Paint();
             paint.setColor(textColor);
-            paint.setTypeface(NORMAL_TYPEFACE);
+            paint.setTypeface(typeface);
             paint.setAntiAlias(true);
             return paint;
         }
@@ -320,9 +356,49 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                     ? R.dimen.digital_time_text_size_round : R.dimen.digital_time_text_size);
             float dateTextSize = resources.getDimension(isRound
                     ? R.dimen.digital_date_text_size_round : R.dimen.digital_date_text_size);
+            float tempTextSize = resources.getDimension(isRound
+                    ? R.dimen.digital_temp_text_size_round : R.dimen.digital_temp_text_size);
 
-            mTimeTextPaint.setTextSize(timeTextSize);
+            mHourPaint.setTextSize(timeTextSize);
+            mMinutePaint.setTextSize(timeTextSize);
+            mColonPaint.setTextSize(timeTextSize);
+
             mDateTextPaint.setTextSize(dateTextSize);
+
+            mHighTempPaint.setTextSize(tempTextSize);
+            mLowTempPaint.setTextSize(tempTextSize);
+
+            calculateBounds();
+        }
+
+        private void calculateBounds(){
+            mColonWidth = mColonPaint.measureText(":");
+            mHighTempWidth = mHighTempPaint.measureText(SAMPLE_TEMP);
+            mHourWidth = mHourPaint.measureText(SAMPLE_HOUR);
+            mTempPadding = mHighTempWidth/3;
+
+            Rect textBounds = new Rect();
+
+            mHourPaint.getTextBounds(SAMPLE_HOUR,0, 1, textBounds);
+
+            mHighTempPaint.getTextBounds(SAMPLE_TEMP, 0, 1, textBounds);
+            mTempHeight = textBounds.height();
+
+            mDateTextPaint.getTextBounds(SAMPLE_DATE, 0, SAMPLE_DATE.length()-1, textBounds);
+            mDateHeight = textBounds.height();
+
+            mYDateOffset = mYTimeOffset + mDateHeight* PADDING_DATE_SCALE;
+            mYLineOffset = mYDateOffset + mTempHeight* (PADDING_TEMP_SCALE-1)/2;
+            mYTempOffset = mYDateOffset + mTempHeight* PADDING_TEMP_SCALE;
+            mYIconOffset = mYTempOffset - mTempHeight*(1+ICON_SCALING_FACTOR)/2;
+
+            mXHourOffset = - mColonWidth/2 - mHourWidth;
+            mXColonOffset = - mColonWidth/2;
+            mXMinuteOffset = mColonWidth/2;
+
+            mXIconOffset = - mHighTempWidth/2 - mTempPadding - mTempHeight*ICON_SCALING_FACTOR;
+            mXHighTempOffset = - mHighTempWidth/2;
+            mXLowTempOffset = mHighTempWidth/2 + mTempPadding;
         }
 
         @Override
@@ -343,8 +419,14 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             if (mAmbient != inAmbientMode) {
                 mAmbient = inAmbientMode;
                 if (mLowBitAmbient) {
-                    mTimeTextPaint.setAntiAlias(!inAmbientMode);
-                    mDateTextPaint.setAntiAlias(!inAmbientMode);
+                    boolean antiAlias = !inAmbientMode;
+                    mHourPaint.setAntiAlias(antiAlias);
+                    mColonPaint.setAntiAlias(antiAlias);
+                    mMinutePaint.setAntiAlias(antiAlias);
+                    mDateTextPaint.setAntiAlias(antiAlias);
+                    mHighTempPaint.setAntiAlias(antiAlias);
+                    mLowTempPaint.setAntiAlias(antiAlias);
+                    mIconPaint.setAntiAlias(antiAlias);
                 }
                 invalidate();
             }
@@ -373,6 +455,7 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                     mTapCount++;
                     mBackgroundPaint.setColor(resources.getColor(mTapCount % 2 == 0 ?
                             R.color.background : R.color.background2));
+                    sendDataRequestMessage();
                     break;
             }
             invalidate();
@@ -393,33 +476,31 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
 
             mTime = new GregorianCalendar(mTime.getTimeZone());
             String timeText = new SimpleDateFormat("HH:mm", Locale.getDefault()).format(mTime.getTime());
-            String dateText = new SimpleDateFormat("EEE, MMM dd yyyy", Locale.getDefault()).format(mTime.getTime());
+            String dateText = new SimpleDateFormat("EEE, MMM dd yyyy", Locale.getDefault()).format(mTime.getTime()).toUpperCase();
 
             String highTempText = String.valueOf(mHighTemp) + (char) 0x00B0;
             String lowTempText = String.valueOf(mLowTemp) + (char) 0x00B0;
 
-            float yOffsetTemp = bounds.height()*2f/3f;
-            float yOffsetTime = bounds.height()*3f/8f;
-            float yOffsetDate = bounds.height()/2f;
+            float centerX = bounds.centerX();
 
-            drawCenteredText(canvas, bounds, mTimeTextPaint, yOffsetTime, timeText);
-            drawCenteredText(canvas, bounds, mDateTextPaint, yOffsetDate, dateText);
-            drawCenteredText(canvas, bounds, mDateTextPaint, yOffsetTemp, highTempText);
+            canvas.drawText(timeText.substring(0,2), centerX + mXHourOffset, mYTimeOffset, mHourPaint);
+            canvas.drawText(":", centerX + mXColonOffset, mYTimeOffset, mColonPaint);
+            canvas.drawText(timeText.substring(3,5), centerX + mXMinuteOffset, mYTimeOffset, mMinutePaint);
 
-            Rect textBounds = new Rect();
-            mDateTextPaint.getTextBounds(highTempText, 0, 2, textBounds);
+            canvas.drawText(dateText, centerX - mDateTextPaint.measureText(dateText)/2, mYDateOffset, mDateTextPaint);
 
-            float width = mDateTextPaint.measureText(highTempText)/2, height = textBounds.height();
+            canvas.drawLine(centerX - bounds.width()/10, mYLineOffset, centerX + bounds.width()/10,  mYLineOffset, mLinePaint);
 
-            canvas.drawText(lowTempText, bounds.centerX() + width, yOffsetTemp, mDateTextPaint);
+            canvas.drawText(highTempText, centerX + mXHighTempOffset, mYTempOffset, mHighTempPaint);
+            canvas.drawText(lowTempText, centerX + mXLowTempOffset, mYTempOffset, mLowTempPaint);
 
             if(mBitmap != null) {
-                //Drawable icon = ResourcesCompat.getDrawable(getResources(), R.drawable.art_clear, null);
-                float intrinsicSize = 1f * mBitmap.getHeight() / DisplayMetrics.DENSITY_DEFAULT;
-                float scale = 2 * height / intrinsicSize;
+                Log.d(TAG, "draw Bitmap");
+                float intrinsicSize = 1f * mBitmap.getScaledHeight(canvas);
+                float scale = mTempHeight*ICON_SCALING_FACTOR / intrinsicSize;
                 Matrix matrix = new Matrix();
                 matrix.setScale(scale, scale);
-                matrix.postTranslate(bounds.centerX() - width - 2.5f * height, yOffsetTemp - 1.5f * height);
+                matrix.postTranslate(centerX + mXIconOffset, mYIconOffset);
                 canvas.drawBitmap(mBitmap, matrix, new Paint());
             }
         }
