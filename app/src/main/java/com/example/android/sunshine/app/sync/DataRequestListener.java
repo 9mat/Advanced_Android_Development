@@ -56,8 +56,6 @@ public class DataRequestListener extends WearableListenerService {
 
     // These indices are tied to FORECAST_COLUMNS.  If FORECAST_COLUMNS changes, these
     // must change.
-    static final int COL_WEATHER_ID = 0;
-    static final int COL_WEATHER_DATE = 1;
     static final int COL_WEATHER_MAX_TEMP = 2;
     static final int COL_WEATHER_MIN_TEMP = 3;
     static final int COL_WEATHER_CONDITION_ID = 4;
@@ -82,6 +80,7 @@ public class DataRequestListener extends WearableListenerService {
             Log.d(TAG, "Data exists. Start sending data to wearable.");
             sendDataToWearable(mGoogleApiClient, high, low, weatherId);
         } else {
+            Log.d(TAG, "Data do not exist. Request sync from ContentResolver.");
             Bundle settingsBundle = new Bundle();
             settingsBundle.putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true);
             settingsBundle.putBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, true);
