@@ -1,10 +1,13 @@
 package com.example.android.sunshine.app.sync;
 
+import android.content.ContentResolver;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.util.Log;
 
+import com.example.android.sunshine.app.R;
 import com.example.android.sunshine.app.Utility;
 import com.example.android.sunshine.app.data.WeatherContract;
 import com.google.android.gms.common.api.GoogleApiClient;
@@ -78,6 +81,13 @@ public class DataRequestListener extends WearableListenerService {
 
             Log.d(TAG, "Data exists. Start sending data to wearable.");
             sendDataToWearable(mGoogleApiClient, high, low, weatherId);
+        } else {
+            Bundle settingsBundle = new Bundle();
+            settingsBundle.putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true);
+            settingsBundle.putBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, true);
+
+            ContentResolver.requestSync(SunshineSyncAdapter.getSyncAccount(getApplicationContext()),
+                    getString(R.string.content_authority), settingsBundle);
         }
     }
 
